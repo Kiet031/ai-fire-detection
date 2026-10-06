@@ -1,0 +1,47 @@
+# Python: môi trường ảo, bytecode và bộ nhớ đệm
+env/
+venv/
+.venv/
+ENV/
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# Sản phẩm đóng gói Python
+build/
+dist/
+*.egg-info/
+*.egg
+
+# Cấu hình và thông tin đăng nhập cục bộ
+/cameras.json
+/test_tapo.py
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# File tải lên, kết quả nhận diện và ảnh cảnh báo được tạo khi chạy
+/static/uploads/
+*.log
+
+# IDE và tệp tạm của trình soạn thảo
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Tệp hệ điều hành
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Giữ các mô hình .onnx và .tflite để chạy AI sau khi clone.

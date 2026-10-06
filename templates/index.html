@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <title>AI Fire Control Center</title>
+    <style>
+        :root { --bg: #121212; --panel: #1e1e1e; --text: #e0e0e0; --accent: #ff4757; --safe: #2ed573; --test: #eccc68; --btn: #2f3542;}
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: var(--bg); color: var(--text); margin: 0; display: flex; height: 100vh; overflow: hidden;}
+        
+        .sidebar { width: 320px; background: var(--panel); padding: 20px; box-shadow: 2px 0 10px rgba(0,0,0,0.5); overflow-y: auto;}
+        .sidebar h2 { color: var(--accent); margin-top: 0; border-bottom: 2px solid #333; padding-bottom: 10px; font-size: 1.2rem;}
+        
+        .cam-list { list-style: none; padding: 0; }
+        .cam-item { background: var(--btn); margin-bottom: 10px; padding: 10px 15px; border-radius: 6px; border-left: 4px solid transparent; display: flex; flex-direction: column; gap: 8px;}
+        .cam-item.active { border-left-color: var(--accent); background: #3f4757;}
+        .cam-name { font-weight: bold; cursor: pointer; color: #fff;}
+        .cam-actions { display: flex; gap: 5px; }
+        .cam-actions button { flex: 1; padding: 5px; font-size: 0.8rem; margin: 0; background: #57606f; cursor: pointer; border: none; border-radius: 3px; color: white;}
+        .cam-actions button:hover { background: #747d8c; }
+        .cam-actions .btn-del:hover { background: var(--accent); }
+        
+        .add-cam-box { margin-top: 30px; background: var(--btn); padding: 15px; border-radius: 6px;}
+        .add-cam-box h3 { margin-top: 0; font-size: 1rem; color: #7bed9f;}
+        input, select, button { width: 100%; padding: 8px; margin-top: 8px; border-radius: 4px; border: none; box-sizing: border-box; background: #dfe4ea; color: #2f3542;}
+        .btn-submit { background: var(--safe); color: white; font-weight: bold; cursor: pointer; margin-top: 15px;}
+        .btn-submit:hover { background: #26b360; }
+        .hidden { display: none !important; }
+
+        .main-view { flex-grow: 1; display: flex; flex-direction: column; align-items: center; padding: 20px; overflow-y: auto;}
+        .view-header { width: 100%; display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;}
+        .badge-group { display: flex; gap: 10px; align-items: center;}
+        
+        .status-badge { padding: 8px 16px; border-radius: 20px; font-weight: bold; background: var(--safe); color: #fff;}
+        .status-badge.alarm { background: var(--accent); animation: blink 1s infinite; }
+        .status-badge.test { background: var(--test); color: #2f3542; }
+        
+        .btn-dismiss { background: #ffa502; color: #fff; border: none; padding: 8px 16px; border-radius: 20px; font-weight: bold; cursor: pointer; transition: 0.2s;}
+        .btn-dismiss:hover { background: #ff7f50; }
+
+        .video-container { background: #000; padding: 5px; border-radius: 8px; border: 2px solid #333; transition: border-color 0.3s; overflow: hidden; width: 100%; max-width: 800px;}
+        .video-container.alarm { border-color: var(--accent); }
+        .video-container.test { border-color: var(--test); }
+        img { width: 100%; border-radius: 4px; display: block; transition: transform 0.2s ease-out; transform-origin: center center;}
+        
+        .camera-controls { display: flex; background: var(--panel); padding: 15px; margin-top: 15px; border-radius: 8px; width: 100%; max-width: 800px; justify-content: space-around; align-items: center; box-sizing: border-box; border: 1px solid #333;}
+        .res-btn { background: #34495e; color: white; border: none; border-radius: 4px; padding: 8px 15px; cursor: pointer; flex: 1; margin: 0;}
+        .res-btn.active { background: var(--safe); font-weight: bold;}
+
+        .location-info { margin-top: 15px; background: var(--panel); padding: 15px; border-radius: 6px; width: 100%; max-width: 800px; font-family: monospace; color: #ffa502; line-height: 1.5; box-sizing: border-box;}
+
+        .log-panel { width: 350px; background: var(--panel); padding: 20px; border-left: 1px solid #333; display: flex; flex-direction: column;}
+        .log-panel h3 { color: var(--accent); border-bottom: 2px solid #333; padding-bottom: 10px; margin-top: 0; font-size: 1.2rem;}
+        .log-list { flex-grow: 1; overflow-y: auto; font-family: monospace; font-size: 13px; line-height: 1.5;}
+        .log-entry { margin-bottom: 10px; padding-bottom: 10px; border-bottom: 1px solid #333; color: #ff6b81;}
+
+        @keyframes blink { 50% { opacity: 0.5; } }
+    </style>
+</head>
+<body>
+    <script>
+        const camData = {{ cameras|tojson|safe }};
+    </script>
+
+    <div class="sidebar">
+        <h2>DANH SÁCH CAMERA</h2>
+        <ul class="cam-list">
+            {% for cam_id, cam_info in cameras.items() %}
+            <li class="cam-item" id="item-{{ cam_id }}">
+                <div class="cam-name" onclick="switchCamera('{{ cam_id }}', '{{ cam_info.name }}')">📡 {{ cam_info.name }}</div>
+                <div class="cam-actions">
+                    <button onclick="editCam('{{ cam_id }}')">Sửa</button>
+                    <form action="/delete_camera/{{ cam_id }}" method="POST" style="margin:0; flex:1;" onsubmit="return confirm('Xóa camera này?');">
+                        <button type="submit" class="btn-del" style="width:100%">Xóa</button>
+                    </form>
+                </div>
+            </li>
+            {% endfor %}
+        </ul>
+
+        <div class="add-cam-box" id="form-box">
+            <h3 id="form-title">Thêm Camera Live Mới</h3>
+            <form action="/save_camera" method="POST">
+                <input type="hidden" name="cam_id" id="input_cam_id" value="">
+                
+                <input type="text" name="cam_name" id="input_name" placeholder="Tên khu vực" required>
+                <select id="config_mode" name="config_mode" onchange="toggleMode()">
+                    <option value="auto">Tự động (Tapo C200)</option>
+                    <option value="manual">Nhập URL Thủ công</option>
+                </select>
+
+                <div id="mode_auto">
+                    <input type="text" name="cam_ip" id="input_ip" placeholder="IP Camera (VD: 192.168.1.10)">
+                    <input type="text" name="cam_user" id="input_user" placeholder="Tài khoản RTSP (VD: admin)">
+                    <input type="password" name="cam_pass" id="input_pass" placeholder="Mật khẩu RTSP">
+                </div>
+
+                <div id="mode_manual" class="hidden">
+                    <input type="text" name="cam_url_manual" id="input_url" placeholder="Nhập Link RTSP đầy đủ">
+                </div>
+                
+                <button type="submit" class="btn-submit" id="btn-submit">+ Lưu Hệ Thống</button>
+                <button type="button" class="btn-submit hidden" id="btn-cancel" style="background:#57606f; margin-top:5px;" onclick="cancelEdit()">Hủy</button>
+            </form>
+        </div>
+
+        <div class="add-cam-box" style="background: #222f3e;">
+            <h3 style="color: var(--test);">Phân Tích File (Test AI)</h3>
+            <form id="upload-form" onsubmit="event.preventDefault(); uploadAndTest();">
+                <input type="file" id="test-file" name="file" accept="image/*,video/*" required style="background: transparent; color: white;">
+                <button type="submit" class="btn-submit" style="background: var(--test); color: #2f3542;">Chạy Test</button>
+            </form>
+        </div>
+        
+        <div class="add-cam-box" style="background: #34495e; margin-top: 15px; border: 1px solid #2c3e50;">
+            <h3 style="color: #f1c40f; margin-bottom: 15px;">🚨 Mô Phỏng Trạng Thái </h3>
+            <div style="display: flex; gap: 5px;">
+                <button class="btn-submit" style="margin-top: 0; background: #ff4757; flex: 1;" onclick="simulateAlarm('danger')">🔥 BÁO CHÁY</button>
+                <button class="btn-submit" style="margin-top: 0; background: #2ed573; flex: 1;" onclick="simulateAlarm('safe')">✅ AN TOÀN</button>
+            </div>
+            <p style="font-size: 11px; color: #bdc3c7; margin-top: 10px; text-align: center; margin-bottom: 0;">(Kích hoạt còi Web & Gửi lệnh tới ESP32)</p>
+        </div>
+
+        <div class="add-cam-box" style="background: #2c3e50; margin-top: 15px; border: 1px solid #34495e;">
+            <h3 style="color: #00d2d3; margin-bottom: 15px;">🕹️ Test ESP32 (I2C)</h3>
+            <button id="btn-toggle-hw-test" class="btn-submit" style="background: #e67e22; margin-bottom: 15px; margin-top: 0;" onclick="toggleHwTest()">🔴 TẠM TẮT AI - ĐỂ TEST CỨNG</button>
+            <div style="margin-bottom: 15px;">
+                <label style="font-size: 12px; color: #bdc3c7;">Góc Servo (Âm: Trái | Dương: Phải)</label>
+                <div style="display: flex; gap: 5px;">
+                    <input type="number" id="test-servo-angle" placeholder="VD: -30 hoặc 45" style="margin-top: 5px; flex: 1;">
+                    <button class="btn-submit" style="margin-top: 5px; width: 70px; background: #0984e3;" onclick="testServo()">Quay</button>
+                </div>
+            </div>
+            <div>
+                <label style="font-size: 12px; color: #bdc3c7;">Test Loa (DFPlayer)</label>
+                <div style="display: flex; gap: 5px; margin-top: 5px;">
+                    <input type="text" id="test-audio-file" placeholder="Tên file (VD: 001)" style="margin-top: 0; flex: 2;">
+                    <button class="btn-submit" style="margin-top: 0; background: #e84393; flex: 1;" onclick="testAudio()">Phát</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="main-view">
+        <div class="view-header">
+            <h2 id="current-cam-title" style="margin: 0;">Hãy chọn 1 Camera</h2>
+            <div class="badge-group">
+                <button id="btn-dismiss" class="btn-dismiss hidden" onclick="dismissAlarm()">TẮT CÒI</button>
+                <div id="status-badge" class="status-badge">AN TOÀN</div>
+            </div>
+        </div>
+        
+        <div id="video-wrapper" class="video-container">
+            <img id="video-feed" src="" alt="View">
+        </div>
+
+        <div class="camera-controls hidden" id="camera-controls">
+            <div style="width: 350px;">
+                <div style="display: flex; justify-content: space-between; font-size: 12px; color: #00d2d3;">
+                    <label>🔍 ZOOM ẢNH</label>
+                    <span id="zoom-val">1.0x</span>
+                </div>
+                <input type="range" id="zoom-slider" min="1" max="3" step="0.1" value="1" oninput="applyZoom(this.value)" style="width: 100%; cursor: pointer;">
+            </div>
+
+            <div style="min-width: 200px;">
+                <label style="font-size: 12px; color: #00d2d3; display:block; margin-bottom: 5px;">📺 ĐỘ PHÂN GIẢI LUỒNG</label>
+                <div style="display: flex; gap: 5px;">
+                    <button class="res-btn active" id="btn-res-hd" onclick="changeRes('hd')">NÉT (HD)</button>
+                    <button class="res-btn" id="btn-res-sd" onclick="changeRes('sd')">MƯỢT (SD)</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="location-info">
+            <strong>📍 TỌA ĐỘ PHUN NƯỚC (ESP32):</strong><br>
+            <span id="live-coordinates">Đang chờ tín hiệu...</span>
+        </div>
+    </div>
+
+    <div class="log-panel">
+        <h3>LỊCH SỬ CẢNH BÁO</h3>
+        <div id="log-list" class="log-list"></div>
+    </div>
+
+    <audio id="alarm-sound" src="https://actions.google.com/sounds/v1/alarms/beeping_alarm.ogg" loop preload="auto"></audio>
+
+    <script>
+        let currentCamId = null;
+        let alarmSound = document.getElementById('alarm-sound');
+
+        function toggleMode() {
+            const mode = document.getElementById('config_mode').value;
+            document.getElementById('mode_auto').classList.toggle('hidden', mode !== 'auto');
+            document.getElementById('mode_manual').classList.toggle('hidden', mode !== 'manual');
+        }
+
+        function editCam(camId) {
+            let data = camData[camId];
+            document.getElementById('form-title').innerText = "Sửa Camera: " + data.name;
+            document.getElementById('input_cam_id').value = camId;
+            document.getElementById('input_name').value = data.name;
+            document.getElementById('config_mode').value = data.mode;
+            toggleMode();
+            
+            if(data.mode === 'auto'){
+                document.getElementById('input_ip').value = data.ip || '';
+                document.getElementById('input_user').value = data.user || '';
+                document.getElementById('input_pass').value = data.password || '';
+            } else {
+                document.getElementById('input_url').value = data.url;
+            }
+            
+            document.getElementById('btn-submit').innerText = "Cập Nhật";
+            document.getElementById('btn-cancel').classList.remove('hidden');
+            window.location.hash = "form-box";
+        }
+
+        function cancelEdit() {
+            document.getElementById('form-title').innerText = "Thêm Camera Live Mới";
+            document.getElementById('input_cam_id').value = "";
+            document.getElementById('input_name').value = "";
+            document.getElementById('input_ip').value = "";
+            document.getElementById('input_user').value = "";
+            document.getElementById('input_pass').value = "";
+            
+            document.getElementById('input_url').value = "";
+            document.getElementById('btn-submit').innerText = "+ Lưu Hệ Thống";
+            document.getElementById('btn-cancel').classList.add('hidden');
+        }
+
+        function switchCamera(camId, camName) {
+            currentCamId = camId;
+            document.getElementById('current-cam-title').innerText = "Khu vực: " + camName;
+            document.getElementById('video-feed').src = "/video_feed/" + camId;
+            
+            document.getElementById('status-badge').classList.remove('test');
+            document.getElementById('video-wrapper').classList.remove('test');
+            document.getElementById('log-list').innerHTML = "";
+            document.getElementById('live-coordinates').innerHTML = "Đang kết nối luồng Live...";
+
+            document.querySelectorAll('.cam-item').forEach(el => el.classList.remove('active'));
+            document.getElementById('item-' + camId).classList.add('active');
+
+            let cData = camData[camId];
+            let controlBox = document.getElementById('camera-controls');
+            if (cData && cData.mode === 'auto') {
+                controlBox.classList.remove('hidden');
+                let q = cData.quality || 'hd';
+                document.getElementById('btn-res-hd').className = q === 'hd' ? 'res-btn active' : 'res-btn';
+                document.getElementById('btn-res-sd').className = q === 'sd' ? 'res-btn active' : 'res-btn';
+            } else {
+                controlBox.classList.add('hidden');
+            }
+
+            document.getElementById('zoom-slider').value = 1;
+            applyZoom(1);
+        }
+
+        function changeRes(quality) {
+            let formData = new URLSearchParams();
+            formData.append('quality', quality);
+            fetch('/api/camera/resolution/' + currentCamId, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: formData
+            }).then(res => res.json()).then(data => {
+                if(data.status === "success") {
+                    document.getElementById('btn-res-hd').className = quality === 'hd' ? 'res-btn active' : 'res-btn';
+                    document.getElementById('btn-res-sd').className = quality === 'sd' ? 'res-btn active' : 'res-btn';
+                    setTimeout(() => {
+                        document.getElementById('video-feed').src = "/video_feed/" + currentCamId + "?t=" + new Date().getTime();
+                    }, 500);
+                } else {
+                    alert(data.message);
+                }
+            });
+        }
+
+        function applyZoom(value) {
+            document.getElementById('video-feed').style.transform = "scale(" + value + ")";
+            document.getElementById('zoom-val').innerText = parseFloat(value).toFixed(1) + "x";
+        }
+
+        function dismissAlarm() {
+            if(currentCamId) fetch('/api/dismiss/' + currentCamId, {method: 'POST'}).then(() => fetchStatus()); 
+        }
+
+        function uploadAndTest() {
+            let fileInput = document.getElementById('test-file');
+            if (!fileInput.files.length) return;
+            let formData = new FormData();
+            formData.append('file', fileInput.files[0]);
+            
+            document.getElementById('camera-controls').classList.add('hidden'); 
+            
+            fetch('/upload_test', {method: 'POST', body: formData})
+            .then(res => res.json())
+            .then(data => {
+                if(data.error) { alert(data.error); return; }
+                currentCamId = 'test';
+                document.querySelectorAll('.cam-item').forEach(el => el.classList.remove('active'));
+                document.getElementById('status-badge').className = "status-badge test";
+                document.getElementById('video-wrapper').className = "video-container test";
+                document.getElementById('video-feed').src = data.url + "?t=" + new Date().getTime();
+            });
+        }
+
+        function toggleHwTest() {
+            fetch('/api/toggle_hw_test', {method: 'POST'});
+        }
+
+        function testServo() {
+            let angle = document.getElementById('test-servo-angle').value;
+            let formData = new URLSearchParams(); formData.append('angle', angle);
+            fetch('/api/test_servo', { method: 'POST', body: formData });
+        }
+
+        function testAudio() {
+            let filename = document.getElementById('test-audio-file').value;
+            let formData = new URLSearchParams(); formData.append('filename', filename);
+            fetch('/api/test_audio', { method: 'POST', body: formData });
+        }
+
+        // HÀM GỬI LỆNH MÔ PHỎNG LÊN BACKEND
+        function simulateAlarm(state) {
+            let formData = new URLSearchParams();
+            formData.append('state', state);
+            fetch('/api/simulate_alarm', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: formData
+            }).then(() => fetchStatus());
+        }
+
+        function fetchStatus() {
+            if (!currentCamId) return;
+            fetch('/api/status/' + currentCamId).then(r => r.json()).then(data => {
+                const badge = document.getElementById('status-badge');
+                const wrapper = document.getElementById('video-wrapper');
+                const coords = document.getElementById('live-coordinates');
+                const btnHwTest = document.getElementById('btn-toggle-hw-test');
+
+                if (data.hw_test_mode) {
+                    btnHwTest.style.background = "#27ae60"; 
+                    btnHwTest.innerText = "🟢 BẬT LẠI AI (KẾT THÚC TEST CỨNG)";
+                    badge.innerText = "CHẾ ĐỘ TEST CỨNG (AI OFF)";
+                    badge.classList.remove('alarm'); wrapper.classList.remove('alarm');
+                    return; 
+                } else {
+                    btnHwTest.style.background = "#e67e22"; 
+                    btnHwTest.innerText = "🔴 TẠM TẮT AI - ĐỂ TEST CỨNG";
+                }
+
+                if (data.alarm) {
+                    badge.innerText = currentCamId === 'test' ? "CHẾ ĐỘ TEST (CÓ LỬA)" : "CẢNH BÁO CHÁY!";
+                    badge.classList.add('alarm'); wrapper.classList.add('alarm');
+                    document.getElementById('btn-dismiss').classList.remove('hidden');
+                    alarmSound.play().catch(e => console.log(e));
+                } else {
+                    badge.innerText = currentCamId === 'test' ? "CHẾ ĐỘ TEST (AN TOÀN)" : "AN TOÀN";
+                    badge.classList.remove('alarm'); wrapper.classList.remove('alarm');
+                    document.getElementById('btn-dismiss').classList.add('hidden');
+                    alarmSound.pause(); alarmSound.currentTime = 0;
+                }
+
+                if (data.locations.length > 0) {
+                    let text = `Phát hiện <b>${data.locations.length}</b> đám cháy:<br>`;
+                    data.locations.forEach((loc, i) => {
+                        text += `🔥 Tọa độ (X:${loc.x}, Y:${loc.y}) -> Góc Servo: <span style="color:#ff4757; font-weight:bold;">${loc.angle}°</span><br>`;
+                    });
+                    coords.innerHTML = text;
+                } else { coords.innerHTML = "Không tìm thấy ngọn lửa."; }
+
+                let logList = document.getElementById('log-list');
+                logList.innerHTML = "";
+                data.logs.forEach(log => {
+                    let div = document.createElement('div'); div.className = 'log-entry'; div.innerText = log;
+                    logList.appendChild(div);
+                });
+            });
+        }
+
+        window.onload = () => {
+            const firstCam = Object.keys(camData)[0];
+            if(firstCam) switchCamera(firstCam, camData[firstCam].name);
+            setInterval(fetchStatus, 1000); 
+        };
+    </script>
+</body>
+</html>
